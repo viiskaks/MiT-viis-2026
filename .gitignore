@@ -8,3 +8,6 @@ playwright-report/
 !.env.example
 *.log
 workspace-backup*.json
+
+# Local IDE state can contain deployment connection details.
+.idea/

@@ -21,7 +21,7 @@ React 19, TypeScript, Vite 7, Tailwind CSS 4, Lucide, Zod, Luxon. Для про�
 ## Установка и запуск
 
 ```sh
-cd /home/viis/projects/MiT-viis-2026
+cd MiT-viis-2026
 npm ci
 npm run dev
 ```
@@ -31,7 +31,7 @@ npm run dev
 В текущей рабочей среде глобальный npm отсутствовал. Для неё предусмотрена локальная обёртка (Node + pnpm для первого bootstrap):
 
 ```sh
-cd /home/viis/projects/MiT-viis-2026
+cd MiT-viis-2026
 ./scripts/npm.sh ci
 ./scripts/npm.sh run dev
 ```
@@ -49,18 +49,13 @@ npm run preview -- --port 4174
 
 Результат — `dist/`, пригодный для статического хостинга. Маршруты `#/meetings`, `#/roadmap` и другие не требуют server rewrite. Для размещения в подкаталоге настройте `base` в `vite.config.ts`. Для публикации на своём VPS см. руководство ниже.
 
-## Деплой на свой VPS через GitHub Actions
+## Публикация и разделение инфраструктуры
 
-Пошаговая инструкция: **[GitHub → Actions → VPS → HTTPS](docs/DEPLOYMENT.md)**.
+**[Руководство по сборке и публикации](docs/DEPLOYMENT.md)** описывает границу между публичным приложением и приватной инфраструктурой.
 
-Руководство рассчитано на Ubuntu 24.04 + Nginx и отдельный домен. Оно включает подготовку VPS, DNS, отдельный SSH-ключ, проверку host key, GitHub Secrets, HTTPS через Certbot, первый деплой, обновления и откат.
+Публичный workflow [Application checks](.github/workflows/ci.yml) проверяет код и создаёт `dist/`. Он не подключается к серверу и не использует deployment-секреты. Настройки Nginx, SSH, TLS, серверные пути и workflow публикации хранятся отдельно в приватном инфраструктурном репозитории.
 
-Готовые файлы:
-
-- [Workflow](docs/deployment/deploy.yml) — после настройки скопируйте в `.github/workflows/deploy.yml`.
-- [Nginx-конфигурация](docs/deployment/nginx.conf) — замените домен и установите на VPS.
-
-После включения workflow push в `main` запускает проверки и сборку, затем передаёт готовые файлы на VPS по SSH. На сервере приложение обслуживает Nginx. Изменения встреч и профиля из UI остаются в браузере; для переноса на новый домен используйте JSON export/import.
+Для переноса встреч и профиля на новый HTTPS-домен используйте JSON export/import: Git и CI не синхронизируют LocalStorage.
 
 ## Подготовка к Session 01
 
