@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.tools/
+.npm-cache/
+test-results/
+playwright-report/
+.env*
+!.env.example
+*.log
+workspace-backup*.json
