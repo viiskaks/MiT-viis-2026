@@ -47,7 +47,20 @@ npm run build
 npm run preview -- --port 4174
 ```
 
-Результат — `dist/`, пригодный для статического хостинга. Маршруты `#/meetings`, `#/roadmap` и другие не требуют server rewrite. Для размещения в подкаталоге настройте `base` в `vite.config.ts`. Публикация и remote Git-репозиторий в эту задачу не входят.
+Результат — `dist/`, пригодный для статического хостинга. Маршруты `#/meetings`, `#/roadmap` и другие не требуют server rewrite. Для размещения в подкаталоге настройте `base` в `vite.config.ts`. Для публикации на своём VPS см. руководство ниже.
+
+## Деплой на свой VPS через GitHub Actions
+
+Пошаговая инструкция: **[GitHub → Actions → VPS → HTTPS](docs/DEPLOYMENT.md)**.
+
+Руководство рассчитано на Ubuntu 24.04 + Nginx и отдельный домен. Оно включает подготовку VPS, DNS, отдельный SSH-ключ, проверку host key, GitHub Secrets, HTTPS через Certbot, первый деплой, обновления и откат.
+
+Готовые файлы:
+
+- [Workflow](docs/deployment/deploy.yml) — после настройки скопируйте в `.github/workflows/deploy.yml`.
+- [Nginx-конфигурация](docs/deployment/nginx.conf) — замените домен и установите на VPS.
+
+После включения workflow push в `main` запускает проверки и сборку, затем передаёт готовые файлы на VPS по SSH. На сервере приложение обслуживает Nginx. Изменения встреч и профиля из UI остаются в браузере; для переноса на новый домен используйте JSON export/import.
 
 ## Подготовка к Session 01
 

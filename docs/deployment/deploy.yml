@@ -1,0 +1,113 @@
+# Copy to .github/workflows/deploy.yml after following docs/DEPLOYMENT.md.
+name: Deploy MiT to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mit-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install, check and build
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Configure SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          # IPv4 or DNS hostname. Keep SSH configuration values on one line.
+          [[ "$VPS_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$VPS_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ -n "$VPS_SSH_KEY" && -n "$VPS_KNOWN_HOSTS" ]]
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/mit-deploy-key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$RUNNER_TEMP/mit-known-hosts"
+          cat > "$RUNNER_TEMP/mit-ssh-config" <<EOF_SSH
+          Host mit-vps
+            HostName $VPS_HOST
+            Port $VPS_PORT
+            User mit-deploy
+            IdentityFile $RUNNER_TEMP/mit-deploy-key
+            UserKnownHostsFile $RUNNER_TEMP/mit-known-hosts
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            BatchMode yes
+            ConnectTimeout 15
+            ServerAliveInterval 15
+            ServerAliveCountMax 3
+          EOF_SSH
+          ssh -F "$RUNNER_TEMP/mit-ssh-config" mit-vps 'test -w /var/www/mit-viis-2026/releases'
+
+      - name: Upload and activate release
+        run: |
+          set -euo pipefail
+          release_id="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ "$release_id" =~ ^[a-f0-9]{40}-[0-9]+-[0-9]+$ ]]
+          printf '%s\n' "$release_id" > dist/deployment.txt
+          ssh -F "$RUNNER_TEMP/mit-ssh-config" mit-vps \
+            "mkdir -p /var/www/mit-viis-2026/releases/$release_id"
+          rsync -az --chmod=D755,F644 \
+            -e "ssh -F $RUNNER_TEMP/mit-ssh-config" \
+            dist/ "mit-vps:/var/www/mit-viis-2026/releases/$release_id/"
+          # Keep hashed assets for browsers still using the previous HTML.
+          # No --delete: shared assets are deliberately retained across releases.
+          rsync -az --chmod=D755,F644 \
+            -e "ssh -F $RUNNER_TEMP/mit-ssh-config" \
+            dist/assets/ mit-vps:/var/www/mit-viis-2026/shared/assets/
+          ssh -F "$RUNNER_TEMP/mit-ssh-config" mit-vps "bash -s -- $release_id" <<'REMOTE'
+          set -euo pipefail
+          release_id="$1"
+          root=/var/www/mit-viis-2026
+          test -s "$root/releases/$release_id/index.html"
+          test -s "$root/releases/$release_id/deployment.txt"
+          ln -s "$root/releases/$release_id" "$root/current.$release_id"
+          mv -Tf "$root/current.$release_id" "$root/current"
+          REMOTE
+
+      - name: Verify public HTTPS release
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          set -euo pipefail
+          [[ "$SITE_URL" == https://* ]]
+          expected="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          actual=$(curl --fail --silent --show-error --retry 3 --retry-delay 3 \
+            --connect-timeout 15 --max-time 30 "${SITE_URL%/}/deployment.txt")
+          [[ "$actual" == "$expected" ]]
+          echo "Published release verified."
+
+      - name: Remove temporary SSH credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/mit-deploy-key" "$RUNNER_TEMP/mit-known-hosts" "$RUNNER_TEMP/mit-ssh-config"
