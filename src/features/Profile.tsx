@@ -6,7 +6,7 @@ import { profileSchema, projectSchema, errorMessage } from '../types/workspace';
 import type { Project } from '../types/workspace';
 import { Confirm, ExternalLink, Field, Modal, PageHeading } from '../components/ui';
 export function MentorProfile() {
-  const { data, update } = useWorkspace();
+  const { data, update, canEdit } = useWorkspace();
   const profile = data.profile;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(profile);
@@ -20,17 +20,19 @@ export function MentorProfile() {
         title="Ментор и проекты"
         description="Опыт, любимые инструменты и вещи, которые хочется показать."
         action={
-          <button
-            className="btn"
-            onClick={() => {
-              setForm(profile);
-              setError('');
-              setEditing(true);
-            }}
-          >
-            <Pencil size={16} />
-            Редактировать профиль
-          </button>
+          canEdit && (
+            <button
+              className="btn"
+              onClick={() => {
+                setForm(profile);
+                setError('');
+                setEditing(true);
+              }}
+            >
+              <Pencil size={16} />
+              Редактировать профиль
+            </button>
+          )
         }
       />
       <div className="profile-grid">
@@ -77,6 +79,7 @@ export function MentorProfile() {
           <h2>Проекты для разговора</h2>
         </div>
         <button
+          hidden={!canEdit}
           className="btn"
           onClick={() => {
             setError('');
@@ -99,7 +102,7 @@ export function MentorProfile() {
           <article className="panel project-card" key={item.id}>
             <div className="row spread">
               <FolderGit2 className="cyan" size={25} />
-              <div className="row">
+              <div className="row" hidden={!canEdit}>
                 <button
                   className="icon-btn"
                   aria-label={`Редактировать проект ${item.title}`}
@@ -136,10 +139,10 @@ export function MentorProfile() {
           <p className="empty panel">Первый проект может быть совсем небольшим.</p>
         )}
       </div>
-      {editing && (
+      {canEdit && editing && (
         <Modal title="Редактировать профиль" onClose={() => setEditing(false)}>
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               try {
                 const valid = profileSchema.parse({
@@ -147,7 +150,7 @@ export function MentorProfile() {
                   experience: form.experience.map((s) => s.trim()).filter(Boolean),
                   stack: form.stack.map((s) => s.trim()).filter(Boolean),
                 });
-                if (update((w) => ({ ...w, profile: valid }))) setEditing(false);
+                if (await update((w) => ({ ...w, profile: valid }))) setEditing(false);
               } catch (e) {
                 setError(errorMessage(e));
               }
@@ -258,10 +261,10 @@ export function MentorProfile() {
           </form>
         </Modal>
       )}
-      {project && (
+      {canEdit && project && (
         <Modal title="Редактировать проект" onClose={() => setProject(null)}>
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               try {
                 const valid = projectSchema.parse({
@@ -269,7 +272,7 @@ export function MentorProfile() {
                   tags: project.tags.map((t) => t.trim()).filter(Boolean),
                 });
                 if (
-                  update((w) => ({
+                  await update((w) => ({
                     ...w,
                     profile: {
                       ...w.profile,
@@ -333,13 +336,13 @@ export function MentorProfile() {
           </form>
         </Modal>
       )}
-      {deleting && (
+      {canEdit && deleting && (
         <Confirm
           title="Удалить проект?"
           onClose={() => setDeleting(null)}
-          onConfirm={() => {
+          onConfirm={async () => {
             if (
-              update((w) => ({
+              await update((w) => ({
                 ...w,
                 profile: {
                   ...w.profile,

@@ -16,7 +16,7 @@ import { statusLabels, topicStatuses } from '../types/workspace';
 import type { Topic } from '../types/workspace';
 import { Confirm, Field, Modal, PageHeading, Progress } from '../components/ui';
 export function Roadmap() {
-  const { data, update } = useWorkspace();
+  const { data, update, canEdit, canInteract, setProgress } = useWorkspace();
   const [selectedId, setSelectedId] = useState(data.roadmap[0]?.id ?? '');
   const [open, setOpen] = useState<Set<string>>(new Set(data.roadmap.slice(0, 1).map((t) => t.id)));
   const [editor, setEditor] = useState<{
@@ -100,10 +100,12 @@ export function Roadmap() {
         title="Программа обучения"
         description="Это ориентир, а не дедлайн. Маршрут можно менять вместе."
         action={
-          <button className="btn primary" onClick={() => add(null)}>
-            <Plus size={17} />
-            Добавить раздел
-          </button>
+          canEdit && (
+            <button className="btn primary" onClick={() => add(null)}>
+              <Plus size={17} />
+              Добавить раздел
+            </button>
+          )
         }
       />
       <div className="roadmap-progress panel">
@@ -130,7 +132,7 @@ export function Roadmap() {
             <>
               <div className="row spread">
                 <span className={`badge ${selected.status}`}>{statusLabels[selected.status]}</span>
-                <div className="row">
+                <div className="row" hidden={!canEdit}>
                   <button
                     className="icon-btn"
                     aria-label="Редактировать тему"
@@ -157,15 +159,8 @@ export function Roadmap() {
               <Field label="Статус темы">
                 <select
                   value={selected.status}
-                  onChange={(e) =>
-                    update((w) => ({
-                      ...w,
-                      roadmap: updateTopic(w.roadmap, selected.id, (t) => ({
-                        ...t,
-                        status: e.target.value as Topic['status'],
-                      })),
-                    }))
-                  }
+                  disabled={!canInteract}
+                  onChange={(e) => void setProgress(selected.id, e.target.value as Topic['status'])}
                 >
                   {topicStatuses.map((status) => (
                     <option key={status} value={status}>
@@ -176,8 +171,9 @@ export function Roadmap() {
               </Field>
               <p className="muted small">
                 Прогресс считается по конечным темам. Статус раздела не меняет статусы его подтем.
+                Менти видит свой личный прогресс.
               </p>
-              <button className="btn mt-6" onClick={() => add(selected.id)}>
+              <button hidden={!canEdit} className="btn mt-6" onClick={() => add(selected.id)}>
                 <Plus size={16} />
                 Добавить подтему
               </button>
@@ -191,17 +187,17 @@ export function Roadmap() {
           )}
         </section>
       </div>
-      {editor && (
+      {canEdit && editor && (
         <Modal
           title={editor.existing ? 'Редактировать тему' : 'Новая тема'}
           onClose={() => setEditor(null)}
         >
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               const entry = { ...editor.topic, title: editor.topic.title.trim() };
               if (!entry.title) return;
-              const success = update((w) => ({
+              const success = await update((w) => ({
                 ...w,
                 roadmap: editor.existing
                   ? updateTopic(w.roadmap, entry.id, () => entry)
@@ -248,12 +244,12 @@ export function Roadmap() {
           </form>
         </Modal>
       )}
-      {deleting && selected && (
+      {canEdit && deleting && selected && (
         <Confirm
           title="Удалить тему?"
           onClose={() => setDeleting(false)}
-          onConfirm={() => {
-            if (update((w) => ({ ...w, roadmap: deleteTopic(w.roadmap, selected.id) })))
+          onConfirm={async () => {
+            if (await update((w) => ({ ...w, roadmap: deleteTopic(w.roadmap, selected.id) })))
               setDeleting(false);
           }}
         >

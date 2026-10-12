@@ -29,7 +29,7 @@ const routes = [
 ];
 const routeFromHash = () => location.hash.replace(/^#\/?/, '') || 'home';
 export function App() {
-  const { data, error, saved } = useWorkspace();
+  const { data, error, saved, user, canEdit, refresh, logout } = useWorkspace();
   const [route, setRoute] = useState(routeFromHash);
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -103,8 +103,8 @@ export function App() {
         <a className="local-storage" href="#/settings">
           <HardDrive size={16} />
           <div>
-            <strong>Локальное пространство</strong>
-            <small>{saved ? 'Данные в этом браузере' : 'Есть несохранённые изменения'}</small>
+            <strong>Общее пространство</strong>
+            <small>{saved ? 'Данные на сервере' : 'Изменения не подтверждены'}</small>
           </div>
         </a>
         <button
@@ -124,10 +124,16 @@ export function App() {
             <span>{active?.sub ?? 'Страница не найдена'}</span>
           </div>
           <div className="topbar-right">
+            <button className="btn" onClick={() => void refresh()}>
+              Обновить
+            </button>
+            <button className="btn" onClick={() => void logout()}>
+              Выйти
+            </button>
             <span className="zone-label">{data.settings.timezone}</span>
             <span className="local-badge">
               <span className="status-dot" />
-              Локальный режим
+              {canEdit ? 'Ментор' : 'Менти'} · {user.name}
             </span>
           </div>
         </header>

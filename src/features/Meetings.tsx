@@ -17,7 +17,7 @@ function MeetingEditor({ meeting, onClose }: { meeting: Meeting; onClose: () => 
   return (
     <Modal title={meeting.title ? 'Редактировать встречу' : 'Новая встреча'} onClose={onClose}>
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
           try {
             const valid = meetingSchema.parse({
@@ -26,7 +26,7 @@ function MeetingEditor({ meeting, onClose }: { meeting: Meeting; onClose: () => 
               time: unscheduled ? '' : form.time,
             });
             if (
-              update((w) => ({
+              await update((w) => ({
                 ...w,
                 meetings: w.meetings.some((m) => m.id === valid.id)
                   ? w.meetings.map((m) => (m.id === valid.id ? valid : m))
@@ -138,7 +138,7 @@ function MeetingEditor({ meeting, onClose }: { meeting: Meeting; onClose: () => 
   );
 }
 export function Meetings() {
-  const { data, update } = useWorkspace();
+  const { data, update, canEdit } = useWorkspace();
   const [filter, setFilter] = useState('all');
   const [editing, setEditing] = useState<Meeting | null>(null);
   const [deleting, setDeleting] = useState<Meeting | null>(null);
@@ -158,26 +158,28 @@ export function Meetings() {
         title="Встречи"
         description="Небольшие шаги. Регулярные разговоры. Место для вопросов."
         action={
-          <button
-            className="btn primary"
-            onClick={() =>
-              setEditing({
-                id: newId(),
-                title: '',
-                date: '',
-                time: '',
-                duration: 60,
-                timezone: data.settings.timezone,
-                status: 'planned',
-                agenda: '',
-                zoomUrl: '',
-                notes: '',
-              })
-            }
-          >
-            <Plus size={17} />
-            Новая встреча
-          </button>
+          canEdit && (
+            <button
+              className="btn primary"
+              onClick={() =>
+                setEditing({
+                  id: newId(),
+                  title: '',
+                  date: '',
+                  time: '',
+                  duration: 60,
+                  timezone: data.settings.timezone,
+                  status: 'planned',
+                  agenda: '',
+                  zoomUrl: '',
+                  notes: '',
+                })
+              }
+            >
+              <Plus size={17} />
+              Новая встреча
+            </button>
+          )
         }
       />
       <div className="toolbar">
@@ -211,7 +213,7 @@ export function Meetings() {
                 <span className={`badge ${meeting.status}`}>
                   {meeting.status === 'planned' ? 'Запланирована' : statusLabels[meeting.status]}
                 </span>
-                <div className="row">
+                <div className="row" hidden={!canEdit}>
                   <button
                     className="icon-btn"
                     aria-label={`Редактировать ${meeting.title}`}
@@ -264,15 +266,20 @@ export function Meetings() {
           </article>
         ))}
       </div>
-      {editing && (
+      {canEdit && editing && (
         <MeetingEditor key={editing.id} meeting={editing} onClose={() => setEditing(null)} />
       )}
-      {deleting && (
+      {canEdit && deleting && (
         <Confirm
           title="Удалить встречу?"
           onClose={() => setDeleting(null)}
-          onConfirm={() => {
-            if (update((w) => ({ ...w, meetings: w.meetings.filter((m) => m.id !== deleting.id) })))
+          onConfirm={async () => {
+            if (
+              await update((w) => ({
+                ...w,
+                meetings: w.meetings.filter((m) => m.id !== deleting.id),
+              }))
+            )
               setDeleting(null);
           }}
         >

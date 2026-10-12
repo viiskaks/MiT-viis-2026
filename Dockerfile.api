@@ -1,0 +1,16 @@
+FROM node:24-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npx vite build --config vite.server.config.ts
+
+FROM node:24-alpine
+ENV NODE_ENV=production LISTEN_HOST=0.0.0.0 PORT=3001 DATABASE_PATH=/data/workspace.sqlite
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && mkdir /data && chown node:node /data
+COPY --from=build --chown=node:node /app/server-dist ./server-dist
+USER node
+EXPOSE 3001
+CMD ["node", "server-dist/index.js"]

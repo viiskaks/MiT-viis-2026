@@ -1,12 +1,25 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { createSeed } from '../../src/data/seed';
 import { readFile } from 'node:fs/promises';
 const key = 'mit-viis-2026.workspace.v1';
 const go = async (page: Page, section: string) => {
   await page.getByRole('navigation').getByRole('link', { name: section, exact: true }).click();
 };
 test.beforeEach(async ({ page }) => {
+  const login = await page.request.post('/api/login', {
+    headers: { Origin: 'http://localhost:5174' },
+    data: { username: 'test-owner', password: 'browser-test-password-12345' },
+  });
+  expect(login.ok()).toBeTruthy();
+  const snapshot = await (await page.request.get('/api/workspace')).json();
+  const reset = await page.request.put('/api/workspace', {
+    headers: { Origin: 'http://localhost:5174' },
+    data: { revision: snapshot.revision, data: createSeed() },
+  });
+  expect(reset.ok()).toBeTruthy();
   await page.goto('/');
+  await expect(page.getByRole('navigation')).toBeVisible();
 });
 test('introductory dashboard, architecture and navigation', async ({ page }) => {
   await expect(
@@ -97,7 +110,11 @@ test('roadmap tree edits, nested additions, progress persistence and subtree del
 }) => {
   await go(page, 'Программа');
   await page.getByRole('button', { name: 'Как работает Интернет', exact: true }).click();
+  const progressSaved = page.waitForResponse(
+    (r) => r.url().endsWith('/api/workspace') && r.request().method() === 'PUT',
+  );
   await page.getByLabel('Статус темы').selectOption('completed');
+  await progressSaved;
   await page.reload();
   await page.getByRole('button', { name: 'Как работает Интернет', exact: true }).click();
   await expect(page.getByLabel('Статус темы')).toHaveValue('completed');
@@ -225,20 +242,15 @@ test('backup download, import validation, confirmation, restore and reset', asyn
   await go(page, 'О менторе');
   await expect(page.getByRole('heading', { name: 'Давайте познакомимся.' })).toBeVisible();
 });
-test('damaged local data is protected until explicit recovery', async ({ page }) => {
+test('localStorage cannot override the shared workspace or grant access', async ({ page }) => {
   await page.evaluate((key) => localStorage.setItem(key, '{broken'), key);
   await page.reload();
-  await expect(page.getByRole('alert')).toContainText('не перезаписаны');
-  await go(page, 'Программа');
-  await page.getByLabel('Статус темы').selectOption('completed');
-  expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe('{broken');
-  await go(page, 'Настройки');
-  await page.getByRole('button', { name: 'Сбросить workspace' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Подтвердить' }).click();
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  expect(JSON.parse((await page.evaluate((key) => localStorage.getItem(key), key))!).version).toBe(
-    1,
-  );
+  await expect(page.getByText('Session 01 — Знакомство')).toBeVisible();
+  await page.getByRole('button', { name: 'Выйти', exact: true }).click();
+  await page.evaluate(() => localStorage.setItem('role', 'owner'));
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Место для своих.' })).toBeVisible();
+  expect((await page.request.get('/api/workspace')).status()).toBe(401);
 });
 for (const width of [1366, 800, 390])
   test(`responsive ${width}px: all sections, no horizontal overflow or runtime errors`, async ({
@@ -302,19 +314,59 @@ test('reduced-motion pipeline and collapsed desktop navigation', async ({ page }
   await expect(page.getByRole('textbox', { name: 'Команда терминала' })).toBeEnabled();
   await page.screenshot({ path: 'test-results/terminal-desktop.png', fullPage: true });
 });
-test('storage write failure keeps edits in memory and permits backup export', async ({ page }) => {
-  await page.evaluate(() => {
-    Storage.prototype.setItem = () => {
-      throw new DOMException('Quota exceeded', 'QuotaExceededError');
-    };
-  });
+test('API write failure keeps the previous server state and reports failure', async ({ page }) => {
   await go(page, 'Настройки');
+  await page.route('**/api/workspace', async (route) => {
+    if (route.request().method() === 'PUT')
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Сервер временно недоступен' }),
+      });
+    else await route.continue();
+  });
   await page.getByLabel('Часовой пояс по умолчанию').fill('UTC');
   await page.getByRole('button', { name: 'Сохранить настройки' }).click();
-  await expect(page.getByRole('alert')).toContainText('Изменения только в памяти');
-  const pending = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Экспорт JSON' }).click();
-  const download = await pending;
-  const data = JSON.parse(await readFile((await download.path())!, 'utf8'));
-  expect(data.settings.timezone).toBe('UTC');
+  await expect(page.getByRole('alert')).toContainText('Сервер временно недоступен');
+  const data = await (await page.request.get('/api/workspace')).json();
+  expect(data.data.settings.timezone).toBe('Asia/Tbilisi');
+});
+
+test('owner creates a mentee, grants progress, and revokes access', async ({ page, browser }) => {
+  await go(page, 'Настройки');
+  await page.getByLabel('Логин менти', { exact: true }).fill('browser-mentee');
+  await page.getByLabel('Имя для отображения').fill('Учебный аккаунт');
+  await page.getByLabel('Начальный пароль', { exact: true }).fill('mentee-browser-password-12345');
+  await page.getByRole('button', { name: 'Добавить менти', exact: true }).click();
+  const account = page.locator('.account-row').filter({ hasText: 'browser-mentee' });
+  await expect(account).toBeVisible();
+  const context = await browser.newContext();
+  const student = await context.newPage();
+  await student.goto('http://localhost:5174');
+  await student.getByLabel('Логин', { exact: true }).fill('browser-mentee');
+  await student.getByLabel('Пароль', { exact: true }).fill('mentee-browser-password-12345');
+  await student.getByRole('button', { name: 'Войти', exact: true }).click();
+  await go(student, 'Встречи');
+  await expect(student.getByRole('button', { name: 'Новая встреча' })).toHaveCount(0);
+  await go(student, 'Программа');
+  await expect(student.getByLabel('Статус темы')).toBeDisabled();
+  await account.getByLabel('Разрешить личный прогресс').click();
+  await expect(account.getByLabel('Разрешить личный прогресс')).toBeChecked();
+  await expect(page.getByRole('status')).toContainText('Доступ обновлён');
+  await student.reload();
+  await expect(student.getByRole('heading', { name: 'Место для своих.' })).toBeVisible();
+  await student.getByLabel('Логин', { exact: true }).fill('browser-mentee');
+  await student.getByLabel('Пароль', { exact: true }).fill('mentee-browser-password-12345');
+  await student.getByRole('button', { name: 'Войти', exact: true }).click();
+  await expect(student.getByLabel('Статус темы')).toBeEnabled();
+  const saved = student.waitForResponse((r) => r.url().endsWith('/api/progress'));
+  await student.getByLabel('Статус темы').selectOption('completed');
+  await saved;
+  await student.reload();
+  await expect(student.getByLabel('Статус темы')).toHaveValue('completed');
+  await account.getByLabel('Доступ в пространство').click();
+  await expect(account.getByLabel('Доступ в пространство')).not.toBeChecked();
+  await student.reload();
+  await expect(student.getByRole('heading', { name: 'Место для своих.' })).toBeVisible();
+  await context.close();
 });

@@ -11,3 +11,8 @@ workspace-backup*.json
 
 # Local IDE state can contain deployment connection details.
 .idea/
+
+# Private server data and compiled backend
+data/
+server-dist/
+*.sqlite*

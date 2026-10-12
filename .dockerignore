@@ -1,0 +1,14 @@
+.git
+.idea
+node_modules
+.tools
+.npm-cache
+data
+.env*
+*.sqlite*
+*.log
+dist
+server-dist
+test-results
+playwright-report
+workspace-backup*.json
